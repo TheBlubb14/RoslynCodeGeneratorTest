@@ -26,7 +26,7 @@ namespace RoslynCodeGeneratorTest
         {
             Console.WriteLine("Hello World!");
             //ProcessCluster(@"..\..\..\Resources\0000_Basic.xml");
-            ReadConstants(@"..\..\..\Resources\zigbee_constants.xml");
+            ReadConstants(@"..\..\..\Resources\zigbee_constants.xml", @"..\..\..\Generated\");
             Console.WriteLine();
             Console.ReadLine();
         }
@@ -39,15 +39,18 @@ namespace RoslynCodeGeneratorTest
             ;
         }
 
-        static void ReadConstants(string path)
+        static void ReadConstants(string resourcesPath, string destinationPath)
         {
-            var s = new XmlSerializer(typeof(zigbee));
-            using var r = new StreamReader(path);
-            var a = s.Deserialize(r) as zigbee;
+            Console.WriteLine("Start generating constants");
+            var serializer = new XmlSerializer(typeof(zigbee));
+            using var streamReader = new StreamReader(resourcesPath);
+            var zigbee = serializer.Deserialize(streamReader) as zigbee;
 
-            var b = ConstantToEnum(a.constant[0]);
-            Console.WriteLine(b);
-            ;
+            foreach (var constant in zigbee.constant)
+            {
+                File.WriteAllText(Path.Combine(destinationPath, $"{constant.@class}.cs"), ConstantToEnum(constant));
+            }
+            Console.WriteLine("Finished generating constants");
         }
 
         static string ConstantToEnum(zigbeeConstant constant)
@@ -73,8 +76,7 @@ namespace RoslynCodeGeneratorTest
                     SyntaxFactory
                     .EqualsValueClause(
                         SyntaxFactory
-                        .LiteralExpression(
-                            SyntaxKind.NumericLiteralExpression, SyntaxFactory.Literal(x.code))))
+                        .ParseExpression(x.code)))
                 ).ToArray());
 
             if (withDescription)
