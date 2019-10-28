@@ -25,18 +25,47 @@ namespace RoslynCodeGeneratorTest
         static void Main(string[] args)
         {
             Console.WriteLine("Hello World!");
-            //ProcessCluster(@"..\..\..\Resources\0000_Basic.xml");
-            ReadConstants(@"..\..\..\Resources\zigbee_constants.xml", @"..\..\..\Generated\");
+            //ProcessCluster(@"..\..\..\Resources\", @"..\..\..\Generated\Cluster\");
+            ReadConstants(@"..\..\..\Resources\zigbee_constants.xml", @"..\..\..\Generated\Constant\");
             Console.WriteLine();
             Console.ReadLine();
         }
 
-        static void ProcessCluster(string path)
+        static void ProcessCluster(string resourcesPath, string destinationPath)
         {
-            var s = new XmlSerializer(typeof(cluster));
-            using var r = new StreamReader(path);
-            var a = s.Deserialize(r);
+            Console.WriteLine("Start generating clusters");
+            var serializer = new XmlSerializer(typeof(cluster));
+
+            foreach (var file in Directory.EnumerateFiles(resourcesPath, "*.xml", SearchOption.TopDirectoryOnly))
+            {
+                using var streamReader = new StreamReader(file);
+                var cluster = serializer.Deserialize(streamReader) as cluster;
+
+                Console.WriteLine(ClusterToClass(cluster));
+                return;
+            }
+
+            Console.WriteLine("Finished generating clusters");
+        }
+        static string ClusterToClass(cluster cluster)
+        {
+            //bool withDescription = !string.IsNullOrWhiteSpace(cluster.description);
+
+            var @namespace = SyntaxFactory
+                .NamespaceDeclaration(SyntaxFactory.ParseName(NAMESPACE))
+                .NormalizeWhitespace();
+
+            // Create class scaffolding
+            var @class = SyntaxFactory
+                .ClassDeclaration(GetValidName(cluster.name))
+                .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword));
+
+
             ;
+            return @namespace
+                .AddMembers(@class)
+                .NormalizeWhitespace()
+                .ToFullString();
         }
 
         static void ReadConstants(string resourcesPath, string destinationPath)
@@ -62,12 +91,12 @@ namespace RoslynCodeGeneratorTest
                 .NormalizeWhitespace();
 
             // Create enum scaffolding
-            var @class = SyntaxFactory
+            var @enum = SyntaxFactory
                 .EnumDeclaration(constant.@class)
                 .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword));
 
             // Add values to enum
-            @class = @class.AddMembers(
+            @enum = @enum.AddMembers(
                 constant.value
                 .Select(x =>
                 SyntaxFactory
@@ -77,37 +106,45 @@ namespace RoslynCodeGeneratorTest
                     .EqualsValueClause(
                         SyntaxFactory
                         .ParseExpression(x.code)))
-                ).ToArray());
-
-            if (withDescription)
-            {
-                var documentationComment = SyntaxFactory.DocumentationComment(
-                    SyntaxFactory.XmlSummaryElement(
-                        SyntaxFactory.XmlNewLine("\r\n"),
-                        SyntaxFactory.XmlText(constant.description),
-                        SyntaxFactory.XmlNewLine("\r\n"),
-                        SyntaxFactory.XmlPreliminaryElement()));
-
-                @class
-                    .WithLeadingTrivia(SyntaxFactory.Trivia(documentationComment).WithAdditionalAnnotations(SyntaxAnnotation.ElasticAnnotation));
-            }
-
-            @namespace = @namespace
-                .AddMembers(@class)
-                .NormalizeWhitespace();
-
-            // Insert \r\n and 4 spaces for indentation between the last comment and the access modifier
-            if (withDescription)
-            {
-                @namespace = @namespace
-                    .InsertTriviaAfter(@namespace
-                    .GetAnnotatedTrivia(SyntaxAnnotation.ElasticAnnotation)
-                    .First(),
-                    new[] { SyntaxFactory.EndOfLine("\r\n    ") });
-            }
+                )
+                .ToArray())
+                .AddXmlComment(constant.description);
 
             return @namespace
+                .AddMembers(@enum)
+                .NormalizeWhitespace()
+                .FixXmlCommentEndOfLine()
                 .ToFullString();
+        }
+
+        private static T AddXmlComment<T>(this T syntax, string description) where T : SyntaxNode
+        {
+            if (string.IsNullOrWhiteSpace(description))
+                return syntax;
+
+            var documentationComment = SyntaxFactory.DocumentationComment(
+                SyntaxFactory.XmlSummaryElement(
+                    SyntaxFactory.XmlNewLine("\r\n"),
+                    SyntaxFactory.XmlText(description),
+                    SyntaxFactory.XmlNewLine("\r\n")));
+
+            return syntax
+                .WithLeadingTrivia(SyntaxFactory.Trivia(documentationComment)
+                .WithAdditionalAnnotations(SyntaxAnnotation.ElasticAnnotation));
+        }
+
+        private static T FixXmlCommentEndOfLine<T>(this T syntax) where T : SyntaxNode
+        {
+            // Insert \r\n and 4 spaces for indentation between the last comment and the access modifier
+            var endOfLine = new[] { SyntaxFactory.EndOfLine("\r\n    ") };
+
+            foreach (var annotation in syntax.GetAnnotatedTrivia(SyntaxAnnotation.ElasticAnnotation))
+            {
+                syntax = syntax
+                    .InsertTriviaAfter(annotation, endOfLine);
+            }
+
+            return syntax;
         }
     }
 }

@@ -10,7 +10,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Generated\" />
+    <Folder Include="Generated\Constant\" />
+    <Folder Include="Generated\Cluster\" />
   </ItemGroup>
 
 </Project>
