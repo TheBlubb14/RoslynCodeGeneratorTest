@@ -13,21 +13,14 @@ namespace RoslynCodeGeneratorTest
 {
     static class Program
     {
-        const string NAMESPACE = "ZigBeeNet";
-        private readonly static Regex _invalidNameCharactersPattern = new Regex(@"[^\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]");
-        private const string _defaultReplacementCharacter = "";
-
-        // Taken from: https://github.com/RicoSuter/NJsonSchema/blob/1a2ce00b3e1e22e78303d1dfeff84b73a2a25392/src/NJsonSchema.CodeGeneration/DefaultEnumNameGenerator.cs#L16
-        static string GetValidName(string name)
-        {
-            return _invalidNameCharactersPattern.Replace(name.Replace(@"""", ""), _defaultReplacementCharacter);
-        }
+        const string ROOT_NAMESPACE = "ZigBeeNet";
+        const string CLUSTER_NAMESPACE = ROOT_NAMESPACE + ".ZCL.Clusters";
 
         static void Main(string[] args)
         {
             Console.WriteLine("Hello World!");
-            //ProcessCluster(@"..\..\..\Resources\", @"..\..\..\Generated\Cluster\");
-            ReadConstants(@"..\..\..\Resources\zigbee_constants.xml", @"..\..\..\Generated\Constant\");
+            ProcessCluster(@"..\..\..\Resources\", @"..\..\..\Generated\Cluster\");
+            //ReadConstants(@"..\..\..\Resources\zigbee_constants.xml", @"..\..\..\Generated\Constant\");
             Console.WriteLine();
             Console.ReadLine();
         }
@@ -37,131 +30,139 @@ namespace RoslynCodeGeneratorTest
             Console.WriteLine("Start generating clusters");
             var serializer = new XmlSerializer(typeof(cluster));
 
-            foreach (var file in Directory.EnumerateFiles(resourcesPath, "*.xml", SearchOption.TopDirectoryOnly))
+            foreach (var file in Directory.EnumerateFiles(resourcesPath, "*.xml", SearchOption.TopDirectoryOnly).Except(new[] { resourcesPath + "zigbee_constants.xml" }))
             {
                 using var streamReader = new StreamReader(file);
                 var cluster = serializer.Deserialize(streamReader) as cluster;
 
-                Console.WriteLine(ClusterToClass(cluster));
-                return;
+                var name = cluster.name.GetValidName();
+                var @namespace = $"{CLUSTER_NAMESPACE}.{name}";
+                var folder = name;
+
+                if (cluster.constant != null)
+                {
+                    foreach (var constant in cluster.constant)
+                    {
+                        Console.WriteLine(ConstantToEnum(constant, @namespace));
+                    }
+                }
+
+                //Console.WriteLine(ClusterToClass(cluster));
+                //return;
             }
 
             Console.WriteLine("Finished generating clusters");
         }
-        static string ClusterToClass(cluster cluster)
+        static string ClusterToClass(cluster Cluster)
         {
             var @namespace = SyntaxFactory
-                .NamespaceDeclaration(SyntaxFactory.ParseName(NAMESPACE))
+                .NamespaceDeclaration(SyntaxFactory.ParseName(ROOT_NAMESPACE))
                 .NormalizeWhitespace();
 
             // Create class scaffolding
             var @class = SyntaxFactory
-                .ClassDeclaration(GetValidName(cluster.name))
+                .ClassDeclaration(Cluster.name.GetValidName())
                 .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
-                .AddXmlComment(cluster.description);
+                .AddXmlComment(Cluster.description);
 
+            var attributes = Cluster.attribute;
+            var constAttributes = attributes.Where(x => x.writable == "false");
+
+            //@class = @class
+            //    .AddMembers(
+            //    constAttributes.Select(x =>
+            //    SyntaxFactory.FieldDeclaration(x.type.ParseType())));
+
+            // So funktioniert const, aber ich brauche eine methode wo ich per if mir das attribute anschauen, weil wenn string muss da was anderen in equals stehen als by byte...
+            @class = @class
+                .AddMembers(
+                constAttributes.Select(x =>
+               SyntaxFactory.FieldDeclaration(
+               SyntaxFactory.List<AttributeListSyntax>(),
+               SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword), SyntaxFactory.Token(SyntaxKind.ConstKeyword)),
+               SyntaxFactory.VariableDeclaration(
+                   x.type.ParseType(),
+                   SyntaxFactory.SingletonSeparatedList(
+                       SyntaxFactory.VariableDeclarator(
+                           SyntaxFactory.Identifier(x.name.GetValidName()),
+                           argumentList: null,
+                           initializer: SyntaxFactory.EqualsValueClause(SyntaxFactory.ParseExpression(x.code))))))).ToArray());
 
             ;
+
+            foreach (var attribute in Cluster.attribute)
+            {
+                switch (attribute.type)
+                {
+
+                    default:
+                        break;
+                }
+            }
+
             return @namespace
                 .AddMembers(@class)
                 .NormalizeWhitespace()
+                .FixXmlCommentEndOfLine()
                 .ToFullString();
         }
 
-        static void ReadConstants(string resourcesPath, string destinationPath)
+        static void ReadConstants(string ResourcesPath, string DestinationPath)
         {
             Console.WriteLine("Start generating constants");
             var serializer = new XmlSerializer(typeof(zigbee));
-            using var streamReader = new StreamReader(resourcesPath);
+            using var streamReader = new StreamReader(ResourcesPath);
             var zigbee = serializer.Deserialize(streamReader) as zigbee;
 
             foreach (var constant in zigbee.constant)
             {
-                File.WriteAllText(Path.Combine(destinationPath, $"{constant.@class}.cs"), ConstantToEnum(constant));
+                File.WriteAllText(Path.Combine(DestinationPath, $"{constant.@class}.cs"), ConstantToEnum(constant, ROOT_NAMESPACE));
             }
             Console.WriteLine("Finished generating constants");
         }
 
-        static string ConstantToEnum(zigbeeConstant constant)
+        static string ConstantToEnum(clusterConstant Constant, string @Namespace)
         {
-            bool withDescription = !string.IsNullOrWhiteSpace(constant.description);
+            return ConstantToEnum(@Namespace, Constant.@class.TrimEnd("Enum"), Constant.value.Select(x => (x.name, x.code)), Constant.description);
+        }
 
+        static string ConstantToEnum(zigbeeConstant Constant, string @Namespace)
+        {
+            return ConstantToEnum(@Namespace, Constant.@class, Constant.value.Select(x => (x.name, x.code)), Constant.description);
+        }
+
+        static string ConstantToEnum(string @Namespace, string Class, IEnumerable<(string Name, string Value)> Values, params string[] Descriptions)
+        {
+            var name = @Namespace.Split('.').Last();
             var @namespace = SyntaxFactory
-                .NamespaceDeclaration(SyntaxFactory.ParseName(NAMESPACE))
+                .NamespaceDeclaration(SyntaxFactory.ParseName(@Namespace))
                 .NormalizeWhitespace();
 
             // Create enum scaffolding
             var @enum = SyntaxFactory
-                .EnumDeclaration(constant.@class)
+                .EnumDeclaration(Class.GetValidName().TrimStart(name))
                 .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword));
 
             // Add values to enum
             @enum = @enum.AddMembers(
-                constant.value
+                Values
                 .Select(x =>
                 SyntaxFactory
-                .EnumMemberDeclaration(GetValidName(x.name))
+                .EnumMemberDeclaration(x.Name.GetValidName())
                 .WithEqualsValue(
                     SyntaxFactory
                     .EqualsValueClause(
                         SyntaxFactory
-                        .ParseExpression(x.code)))
+                        .ParseExpression(x.Value)))
                 )
                 .ToArray())
-                .AddXmlComment(constant.description);
+                .AddXmlComment(Descriptions);
 
             return @namespace
                 .AddMembers(@enum)
                 .NormalizeWhitespace()
                 .FixXmlCommentEndOfLine()
                 .ToFullString();
-        }
-
-        /// <summary>
-        /// Adds the given descriptions before the given <see cref="SyntaxNode"/>
-        /// </summary>
-        /// <typeparam name="T">Has to be based of from <see cref="SyntaxNode"/></typeparam>
-        /// <param name="syntax">The <typeparamref name="T"/> where the comment should be added to</param>
-        /// <param name="descriptions">The description to be added in front of the given <typeparamref name="T"/></param>
-        /// <returns>The modified <typeparamref name="T"/></returns>
-        private static T AddXmlComment<T>(this T syntax, params string[] descriptions) where T : SyntaxNode
-        {
-            var lines = descriptions.Where(x => !string.IsNullOrWhiteSpace(x));
-            if (!lines.Any())
-                return syntax;
-
-            var nodes = new List<XmlNodeSyntax>();
-            nodes.Add(SyntaxFactory.XmlNewLine("\r\n"));
-            nodes.AddRange(lines.Select(SyntaxFactory.XmlText));
-            nodes.Add(SyntaxFactory.XmlNewLine("\r\n"));
-
-            var documentationComment = SyntaxFactory.DocumentationComment(
-                SyntaxFactory.XmlSummaryElement(nodes.ToArray()));
-
-            return syntax
-                .WithLeadingTrivia(SyntaxFactory.Trivia(documentationComment)
-                .WithAdditionalAnnotations(SyntaxAnnotation.ElasticAnnotation));
-        }
-
-        /// <summary>
-        /// Fixes the comment created from <see cref="AddXmlComment{T}(T, string[])"/> 
-        /// by inserting \r\n and 4 spaces between the inserted comment and the given <see cref="SyntaxNode"/>
-        /// </summary>
-        /// <typeparam name="T">Has to be based of from <see cref="SyntaxNode"/></typeparam>
-        /// <param name="syntax">The <typeparamref name="T"/> where the comment should be fixed</param>
-        /// <returns>The modified <typeparamref name="T"/></returns>
-        private static T FixXmlCommentEndOfLine<T>(this T syntax) where T : SyntaxNode
-        {
-            // Insert \r\n and 4 spaces for indentation between the last comment and the access modifier
-            var endOfLine = new[] { SyntaxFactory.EndOfLine("\r\n    ") };
-
-            foreach (var annotation in syntax.GetAnnotatedTrivia(SyntaxAnnotation.ElasticAnnotation))
-            {
-                syntax = syntax
-                    .InsertTriviaAfter(annotation, endOfLine);
-            }
-
-            return syntax;
         }
     }
 }
