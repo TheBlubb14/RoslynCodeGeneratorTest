@@ -1,6 +1,8 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Formatting;
+using Microsoft.CodeAnalysis.Options;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -15,6 +17,7 @@ namespace RoslynCodeGeneratorTest
     {
         const string ROOT_NAMESPACE = "ZigBeeNet";
         const string CLUSTER_NAMESPACE = ROOT_NAMESPACE + ".ZCL.Clusters";
+        const string GENERAL_COMMAND = "GENERAL";
 
         static void Main(string[] args)
         {
@@ -39,13 +42,25 @@ namespace RoslynCodeGeneratorTest
                 var @namespace = $"{CLUSTER_NAMESPACE}.{name}";
                 var folder = name;
 
-                if (cluster.constant != null)
+                // command means own class
+                if (cluster.command != null)
                 {
-                    foreach (var constant in cluster.constant)
+                    foreach (var command in cluster.command)
                     {
-                        Console.WriteLine(ConstantToEnum(constant, @namespace));
+                        Console.WriteLine(CommandToClass(command, @namespace, cluster.name.Equals(GENERAL_COMMAND)));
+                        break;
                     }
                 }
+
+
+                // Generate enums
+                //if (cluster.constant != null)
+                //{
+                //    foreach (var constant in cluster.constant)
+                //    {
+                //        Console.WriteLine(ConstantToEnum(constant, @namespace));
+                //    }
+                //}
 
                 //Console.WriteLine(ClusterToClass(cluster));
                 //return;
@@ -53,11 +68,63 @@ namespace RoslynCodeGeneratorTest
 
             Console.WriteLine("Finished generating clusters");
         }
+
+        static string CommandToClass(clusterCommand Command, string @Namespace, bool IsGeneral)
+        {
+            var @namespace = SyntaxFactory
+                .NamespaceDeclaration(SyntaxFactory.ParseName(@Namespace));
+
+            var comment = "This command is " + (IsGeneral
+                ? "a generic command used across the profile."
+                : "a specific command used for the " + Command.name + " cluster.");
+
+            // Create class scaffolding
+            var @class = SyntaxFactory
+                .ClassDeclaration(Command.name.GetValidName())
+                .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
+                .AddXmlComment(Command.description?
+                .Append(comment)?.ToArray());
+
+            // properties
+            //Command.field
+
+            @class = @class.AddMembers(
+                SyntaxFactory.ConstructorDeclaration(@class.Identifier.ValueText)
+                .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)))
+                .AddXmlComment("hello dear")
+                .WithBody(SyntaxFactory.Block()));
+
+            //SyntaxFactory
+            //    .ConstructorInitializer(
+            //    SyntaxKind.PublicKeyword,
+            //    SyntaxFactory.Token())
+            // USINGS
+            // using System;
+            // using System.Collections.Generic;
+            // using System.Linq;
+            // using System.Text;
+            // using ZigBeeNet.ZCL.Protocol;
+            // using ZigBeeNet.ZCL.Field;
+
+            // ganz normal namespace und docu hinzufügen
+            // zur doku in der letzten zeile /// This command is " + ((cluster.name.Equals("GENERAL")) ? "a generic command used across the profile." : "a specific command used for the " + name + " cluster."));
+            // hinzufügen
+            //SyntaxFactory.com
+            //        var formattedUnit = @namespace.Format(
+            //new FormattingOptions(false, 4, 4)).GetFormattedRoot();
+
+            //@namespace = Formatter.Format(@namespace, Formatter.Annotation, new AdhocWorkspace()) as NamespaceDeclarationSyntax;
+
+            return @namespace
+                .AddMembers(@class)
+                .Format()
+                .ToFullString();
+        }
+
         static string ClusterToClass(cluster Cluster)
         {
             var @namespace = SyntaxFactory
-                .NamespaceDeclaration(SyntaxFactory.ParseName(ROOT_NAMESPACE))
-                .NormalizeWhitespace();
+                .NamespaceDeclaration(SyntaxFactory.ParseName(ROOT_NAMESPACE));
 
             // Create class scaffolding
             var @class = SyntaxFactory
@@ -102,8 +169,7 @@ namespace RoslynCodeGeneratorTest
 
             return @namespace
                 .AddMembers(@class)
-                .NormalizeWhitespace()
-                .FixXmlCommentEndOfLine()
+                .Format()
                 .ToFullString();
         }
 
@@ -123,7 +189,7 @@ namespace RoslynCodeGeneratorTest
 
         static string ConstantToEnum(clusterConstant Constant, string @Namespace)
         {
-            return ConstantToEnum(@Namespace, Constant.@class.TrimEnd("Enum"), Constant.value.Select(x => (x.name, x.code)), Constant.description);
+            return ConstantToEnum(@Namespace, Constant.@class, Constant.value.Select(x => (x.name, x.code)), Constant.description);
         }
 
         static string ConstantToEnum(zigbeeConstant Constant, string @Namespace)
@@ -135,12 +201,11 @@ namespace RoslynCodeGeneratorTest
         {
             var name = @Namespace.Split('.').Last();
             var @namespace = SyntaxFactory
-                .NamespaceDeclaration(SyntaxFactory.ParseName(@Namespace))
-                .NormalizeWhitespace();
+                .NamespaceDeclaration(SyntaxFactory.ParseName(@Namespace));
 
             // Create enum scaffolding
             var @enum = SyntaxFactory
-                .EnumDeclaration(Class.GetValidName().TrimStart(name))
+                .EnumDeclaration(Class.GetValidName().TrimStart(name).TrimEnd("Enum"))
                 .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword));
 
             // Add values to enum
@@ -160,9 +225,16 @@ namespace RoslynCodeGeneratorTest
 
             return @namespace
                 .AddMembers(@enum)
-                .NormalizeWhitespace()
-                .FixXmlCommentEndOfLine()
+                .Format()
                 .ToFullString();
+        }
+    }
+
+    class A
+    {
+        public A()
+        {
+
         }
     }
 }

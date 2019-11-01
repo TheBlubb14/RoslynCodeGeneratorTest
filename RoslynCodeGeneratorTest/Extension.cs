@@ -1,6 +1,7 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Formatting;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,7 +27,7 @@ namespace RoslynCodeGeneratorTest
 
             if (index == -1)
                 return source;
-            
+
             return source[(index + value.Length)..];
         }
 
@@ -58,6 +59,11 @@ namespace RoslynCodeGeneratorTest
             }
         }
 
+        internal static T Format<T>(this T node) where T : SyntaxNode
+        {
+            return Formatter.Format(node, node.FullSpan, new AdhocWorkspace()) as T;
+        }
+
         /// <summary>
         /// Adds the given descriptions before the given <see cref="SyntaxNode"/>
         /// </summary>
@@ -72,37 +78,34 @@ namespace RoslynCodeGeneratorTest
                 return syntax;
 
             var nodes = new List<XmlNodeSyntax>();
-            nodes.Add(SyntaxFactory.XmlNewLine("\r\n"));
-            nodes.AddRange(lines.Select(SyntaxFactory.XmlText));
+            foreach (var line in lines)
+            {
+                nodes.Add(SyntaxFactory.XmlNewLine("\r\n"));
+                nodes.Add(SyntaxFactory.XmlText(line));
+            }
             nodes.Add(SyntaxFactory.XmlNewLine("\r\n"));
 
-            var documentationComment = SyntaxFactory.DocumentationComment(
+            var documentationComment = DocumentationComment(
                 SyntaxFactory.XmlSummaryElement(nodes.ToArray()));
 
             return syntax
-                .WithLeadingTrivia(SyntaxFactory.Trivia(documentationComment)
-                .WithAdditionalAnnotations(SyntaxAnnotation.ElasticAnnotation));
+                .WithLeadingTrivia(SyntaxFactory.Trivia(documentationComment));
         }
 
         /// <summary>
-        /// Fixes the comment created from <see cref="AddXmlComment{T}(T, string[])"/> 
-        /// by inserting \r\n and 4 spaces between the inserted comment and the given <see cref="SyntaxNode"/>
+        /// Taken from roslyn source code
+        /// Creates an xml documentation comment that abstracts xml syntax creation.
         /// </summary>
-        /// <typeparam name="T">Has to be based of from <see cref="SyntaxNode"/></typeparam>
-        /// <param name="syntax">The <typeparamref name="T"/> where the comment should be fixed</param>
-        /// <returns>The modified <typeparamref name="T"/></returns>
-        internal static T FixXmlCommentEndOfLine<T>(this T syntax) where T : SyntaxNode
+        /// <param name="content">
+        /// A list of xml node syntax that will be the content within the xml documentation comment
+        /// (e.g. a summary element, a returns element, exception element and so on).
+        /// </param>
+        private static DocumentationCommentTriviaSyntax DocumentationComment(params XmlNodeSyntax[] content)
         {
-            // Insert \r\n and 4 spaces for indentation between the last comment and the access modifier
-            var endOfLine = new[] { SyntaxFactory.EndOfLine("\r\n    ") };
-
-            foreach (var annotation in syntax.GetAnnotatedTrivia(SyntaxAnnotation.ElasticAnnotation))
-            {
-                syntax = syntax
-                    .InsertTriviaAfter(annotation, endOfLine);
-            }
-
-            return syntax;
+            return SyntaxFactory.DocumentationCommentTrivia(
+                SyntaxKind.SingleLineDocumentationCommentTrivia, SyntaxFactory.List(content))
+                .WithLeadingTrivia(SyntaxFactory.DocumentationCommentExterior("/// "))
+                .WithTrailingTrivia(SyntaxFactory.EndOfLine("\r\n")); // EndofLine with \r\n instead of empty string
         }
     }
 }
