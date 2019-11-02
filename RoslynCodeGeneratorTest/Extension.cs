@@ -2,9 +2,12 @@
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Formatting;
+using Microsoft.CodeAnalysis.Text;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -14,6 +17,10 @@ namespace RoslynCodeGeneratorTest
     {
         private readonly static Regex _invalidNameCharactersPattern = new Regex(@"[^\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]");
         private const string _defaultReplacementCharacter = "";
+        private static readonly MetadataReference CorlibReference = MetadataReference.CreateFromFile(typeof(object).Assembly.Location);
+        private static readonly MetadataReference SystemCoreReference = MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location);
+
+        private static Workspace Workspace = CreateWorkspace();
 
         // Taken from: https://github.com/RicoSuter/NJsonSchema/blob/1a2ce00b3e1e22e78303d1dfeff84b73a2a25392/src/NJsonSchema.CodeGeneration/DefaultEnumNameGenerator.cs#L16
         internal static string GetValidName(this string name)
@@ -59,9 +66,49 @@ namespace RoslynCodeGeneratorTest
             }
         }
 
+        /// <summary>
+        /// Returns the bool as the language keyword
+        /// </summary>
+        /// <param name="b">The boolean</param>
+        /// <returns></returns>
+        internal static string ToKeyword(this bool b)
+        {
+            return SyntaxFactory.Token(b ? SyntaxKind.TrueKeyword : SyntaxKind.FalseKeyword).ToString();
+        }
+
         internal static T Format<T>(this T node) where T : SyntaxNode
         {
-            return Formatter.Format(node, node.FullSpan, new AdhocWorkspace()) as T;
+            return Formatter.Format(node, node.FullSpan, Workspace) as T;
+        }
+
+        private static Workspace CreateWorkspace()
+        {
+            var workspace = new AdhocWorkspace();
+            var projectInfo = ProjectInfo.Create(
+                ProjectId.CreateNewId(Program.ROOT_NAMESPACE),
+                VersionStamp.Create(),
+                Program.ROOT_NAMESPACE,
+                Program.ROOT_NAMESPACE,
+                LanguageNames.CSharp,
+                parseOptions: new CSharpParseOptions(LanguageVersion.Latest),
+                metadataReferences: ImmutableList.Create(
+                    CorlibReference, SystemCoreReference)
+                );
+
+            workspace.AddProject(projectInfo);
+
+            //            string a =
+            //                @"namespace ZigBeeNet.ZCL.Protocol
+            //{
+            //    public enum ZclCommandDirection : byte
+            //    {
+            //        CLIENT_TO_SERVER = 0x00,
+            //        SERVER_TO_CLIENT = 0x01
+            //    }
+            //}";
+            //workspace.AddDocument(projectInfo.Id, "ZclCommandDirection", SourceText.From(a));
+
+            return workspace;
         }
 
         /// <summary>

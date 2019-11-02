@@ -15,12 +15,32 @@ namespace RoslynCodeGeneratorTest
 {
     static class Program
     {
-        const string ROOT_NAMESPACE = "ZigBeeNet";
+        internal const string ROOT_NAMESPACE = "ZigBeeNet";
         const string CLUSTER_NAMESPACE = ROOT_NAMESPACE + ".ZCL.Clusters";
+        const string PROTOCOL_NAMESPACE = ROOT_NAMESPACE + ".ZCL.Protocol";
+        const string FIELD_NAMESPACE = ROOT_NAMESPACE + ".ZCL.Field";
         const string GENERAL_COMMAND = "GENERAL";
+        const string ZCL_COMMAND = "ZclCommand";
+        const string AUTO_GENERATED_WARNING = "Code is auto-generated. Modifications may be overwritten!";
+        const string ZCL_COMMAND_DIRECTION = "ZclCommandDirection";
+        const string CLIENT_TO_SERVER = "CLIENT_TO_SERVER";
+        const string SERVER_TO_CLIENT = "SERVER_TO_CLIENT";
+
+        private static List<UsingDirectiveSyntax> _usings;
 
         static void Main(string[] args)
         {
+            _usings = new List<UsingDirectiveSyntax>()
+            {
+                SyntaxFactory.UsingDirective(SyntaxFactory.IdentifierName("System")),
+                SyntaxFactory.UsingDirective(SyntaxFactory.IdentifierName("System.Collections.Generic")),
+                SyntaxFactory.UsingDirective(SyntaxFactory.IdentifierName("System.Linq")),
+                SyntaxFactory.UsingDirective(SyntaxFactory.IdentifierName("System.Text")),
+                SyntaxFactory.UsingDirective(SyntaxFactory.IdentifierName(PROTOCOL_NAMESPACE)),
+                SyntaxFactory.UsingDirective(SyntaxFactory.IdentifierName(FIELD_NAMESPACE)),
+                SyntaxFactory.UsingDirective(SyntaxFactory.IdentifierName(CLUSTER_NAMESPACE)),
+            };
+
             Console.WriteLine("Hello World!");
             ProcessCluster(@"..\..\..\Resources\", @"..\..\..\Generated\Cluster\");
             //ReadConstants(@"..\..\..\Resources\zigbee_constants.xml", @"..\..\..\Generated\Constant\");
@@ -47,8 +67,8 @@ namespace RoslynCodeGeneratorTest
                 {
                     foreach (var command in cluster.command)
                     {
-                        Console.WriteLine(CommandToClass(command, @namespace, cluster.name.Equals(GENERAL_COMMAND)));
-                        break;
+                        Console.WriteLine(CommandToClass(command, @namespace, cluster.name.Equals(GENERAL_COMMAND), name, cluster.code));
+                        return;
                     }
                 }
 
@@ -69,30 +89,42 @@ namespace RoslynCodeGeneratorTest
             Console.WriteLine("Finished generating clusters");
         }
 
-        static string CommandToClass(clusterCommand Command, string @Namespace, bool IsGeneral)
+        static string CommandToClass(clusterCommand Command, string @Namespace, bool IsGeneral, string ClusterName, string ClusterId)
         {
             var @namespace = SyntaxFactory
-                .NamespaceDeclaration(SyntaxFactory.ParseName(@Namespace));
+                .NamespaceDeclaration(SyntaxFactory.ParseName(@Namespace))
+                .WithUsings(SyntaxFactory.List(_usings));
 
-            var comment = "This command is " + (IsGeneral
+            var comments = new List<string>();
+            comments.Add($"{ClusterName} Cluster. Command is sent from {Command.source}");
+            comments.AddRange(Command.description);
+            comments.Add("This command is " + (IsGeneral
                 ? "a generic command used across the profile."
-                : "a specific command used for the " + Command.name + " cluster.");
+                : "a specific command used for the " + Command.name + " cluster."));
+            comments.Add(AUTO_GENERATED_WARNING);
 
             // Create class scaffolding
             var @class = SyntaxFactory
                 .ClassDeclaration(Command.name.GetValidName())
                 .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
-                .AddXmlComment(Command.description?
-                .Append(comment)?.ToArray());
+                .AddBaseListTypes(SyntaxFactory.SimpleBaseType(SyntaxFactory.ParseTypeName(ZCL_COMMAND)))
+                .AddXmlComment(comments.ToArray());
 
             // properties
             //Command.field
 
+            var constructorBody = new List<StatementSyntax>();
+            constructorBody.Add(SyntaxFactory.ParseStatement($"GenericCommand = {IsGeneral.ToKeyword()};\r\n"));
+            if (!IsGeneral)
+                constructorBody.Add(SyntaxFactory.ParseStatement($"ClusterId = {ClusterId};\r\n"));
+            constructorBody.Add(SyntaxFactory.ParseStatement($"CommandId = {Command.code};\r\n"));
+            constructorBody.Add(SyntaxFactory.ParseStatement($"CommandDirection = {ZCL_COMMAND_DIRECTION}.{(string.Equals(Command.source, "server") ? SERVER_TO_CLIENT : CLIENT_TO_SERVER)};\r\n"));
+
             @class = @class.AddMembers(
                 SyntaxFactory.ConstructorDeclaration(@class.Identifier.ValueText)
                 .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)))
-                .AddXmlComment("hello dear")
-                .WithBody(SyntaxFactory.Block()));
+                .AddXmlComment("Default constructor")
+                .WithBody(SyntaxFactory.Block(constructorBody)));
 
             //SyntaxFactory
             //    .ConstructorInitializer(
