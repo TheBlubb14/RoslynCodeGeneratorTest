@@ -120,37 +120,135 @@ namespace RoslynCodeGeneratorTest
             constructorBody.Add(SyntaxFactory.ParseStatement($"CommandId = {Command.code};\r\n"));
             constructorBody.Add(SyntaxFactory.ParseStatement($"CommandDirection = {ZCL_COMMAND_DIRECTION}.{(string.Equals(Command.source, "server") ? SERVER_TO_CLIENT : CLIENT_TO_SERVER)};\r\n"));
 
+            // Add constructor
             @class = @class.AddMembers(
                 SyntaxFactory.ConstructorDeclaration(@class.Identifier.ValueText)
                 .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)))
                 .AddXmlComment("Default constructor")
                 .WithBody(SyntaxFactory.Block(constructorBody)));
 
-            //SyntaxFactory
-            //    .ConstructorInitializer(
-            //    SyntaxKind.PublicKeyword,
-            //    SyntaxFactory.Token())
-            // USINGS
-            // using System;
-            // using System.Collections.Generic;
-            // using System.Linq;
-            // using System.Text;
-            // using ZigBeeNet.ZCL.Protocol;
-            // using ZigBeeNet.ZCL.Field;
+            var toStringBody = new List<StatementSyntax>()
+            {
+                // var builder = new StringBuilder();
+                CreateLocalDeclaration("builder", "StringBuilder"),
+                
+                // builder.Append("TheCommand [");
+                SyntaxFactory
+                .ExpressionStatement(
+                    CreateInvocation("builder", "Append", StringArgument($"{@class.Identifier.ValueText} ["))),
 
-            // ganz normal namespace und docu hinzufügen
-            // zur doku in der letzten zeile /// This command is " + ((cluster.name.Equals("GENERAL")) ? "a generic command used across the profile." : "a specific command used for the " + name + " cluster."));
-            // hinzufügen
-            //SyntaxFactory.com
-            //        var formattedUnit = @namespace.Format(
-            //new FormattingOptions(false, 4, 4)).GetFormattedRoot();
+                // builder.Append(base.ToString());
+                SyntaxFactory
+                .ExpressionStatement(
+                CreateInvocation(
+                    "builder", "Append",
+                    SyntaxFactory.ArgumentList(
+                        SyntaxFactory.SeparatedList(new[] { SyntaxFactory.Argument(
+                            CreateInvocation(
+                                SyntaxFactory.BaseExpression(SyntaxFactory.Token(SyntaxKind.BaseKeyword)),
+                                SyntaxFactory.ParseToken("ToString")))
+                        })))),
 
-            //@namespace = Formatter.Format(@namespace, Formatter.Annotation, new AdhocWorkspace()) as NamespaceDeclarationSyntax;
+                // builder.Append(']');
+                SyntaxFactory
+                .ExpressionStatement(
+                    CreateInvocation("builder", "Append", CharArgument(']'))),
 
+                // return builder.ToString();
+                SyntaxFactory.ReturnStatement(CreateInvocation("builder", "ToString"))
+            };
+
+            @class = @class.AddMembers(
+                SyntaxFactory.MethodDeclaration(
+                    SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword)),
+                    "ToString")
+                .WithModifiers(
+                    SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword),
+                    SyntaxFactory.Token(SyntaxKind.OverrideKeyword)))
+                .WithBody(SyntaxFactory.Block(toStringBody))
+                );
+
+
+            //@class = @class.AddMembers(
+            //    SyntaxFactory.MethodDeclaration().wit
+            //    )
             return @namespace
                 .AddMembers(@class)
                 .Format()
                 .ToFullString();
+        }
+
+        static ArgumentListSyntax Argument(ExpressionSyntax Argument)
+        {
+            return SyntaxFactory.ArgumentList(
+                SyntaxFactory.SeparatedList(new[]
+                {
+                    SyntaxFactory
+                    .Argument(Argument)
+                }));
+        }
+
+        static ArgumentListSyntax StringArgument(string Value)
+        {
+            return Argument(
+                SyntaxFactory
+                .LiteralExpression(
+                    SyntaxKind.StringLiteralExpression,
+                    SyntaxFactory.Literal(Value)));
+        }
+
+        static ArgumentListSyntax CharArgument(char Value)
+        {
+            return Argument(
+                SyntaxFactory
+                .LiteralExpression(
+                    SyntaxKind.CharacterLiteralExpression,
+                    SyntaxFactory.Literal(Value)));
+        }
+
+        static InvocationExpressionSyntax CreateInvocation(string Variable, string Method, ArgumentListSyntax ArgumentList = null)
+        {
+            return CreateInvocation(SyntaxFactory.ParseToken(Variable), SyntaxFactory.ParseToken(Method), ArgumentList);
+        }
+
+        static InvocationExpressionSyntax CreateInvocation(SyntaxToken Variable, SyntaxToken Method, ArgumentListSyntax ArgumentList = null)
+        {
+            return CreateInvocation(
+                SyntaxFactory.IdentifierName(Variable),
+                Method, ArgumentList);
+        }
+
+        static InvocationExpressionSyntax CreateInvocation(ExpressionSyntax Variable, SyntaxToken Method, ArgumentListSyntax ArgumentList = null)
+        {
+            return SyntaxFactory.InvocationExpression(
+                SyntaxFactory.MemberAccessExpression(
+                    SyntaxKind.SimpleMemberAccessExpression,
+                    Variable,
+                    SyntaxFactory.IdentifierName(Method)),
+                ArgumentList ?? SyntaxFactory.ArgumentList());
+        }
+
+        static LocalDeclarationStatementSyntax CreateLocalDeclaration(string Variable, string Type, string Identifier = "var")
+        {
+            return CreateLocalDeclaration(SyntaxFactory.Identifier(Variable), SyntaxFactory.Identifier(Type), Identifier);
+        }
+
+        static LocalDeclarationStatementSyntax CreateLocalDeclaration(SyntaxToken Variable, SyntaxToken Type, string Identifier = "var")
+        {
+            return SyntaxFactory.LocalDeclarationStatement(
+                SyntaxFactory.VariableDeclaration(
+                    SyntaxFactory.IdentifierName(Identifier),
+                    SyntaxFactory.SeparatedList(new[]
+                    {
+                        SyntaxFactory.VariableDeclarator(
+                            Variable,
+                            null,
+                            SyntaxFactory.EqualsValueClause(
+                                SyntaxFactory.ObjectCreationExpression(
+                                    SyntaxFactory.IdentifierName(
+                                        Type),
+                                    SyntaxFactory.ArgumentList(), null)))
+                    })));
         }
 
         static string ClusterToClass(cluster Cluster)
@@ -267,6 +365,17 @@ namespace RoslynCodeGeneratorTest
         public A()
         {
 
+        }
+
+        public override string ToString()
+        {
+            var builder = new System.Text.StringBuilder();
+
+            builder.Append("ResetToFactoryDefaultsCommand [");
+            builder.Append(base.ToString());
+            builder.Append(']');
+
+            return builder.ToString();
         }
     }
 }
