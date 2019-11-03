@@ -63,11 +63,13 @@ namespace RoslynCodeGeneratorTest
                 var folder = name;
 
                 // command means own class
+                // atttributes müssen auch in command to class rein
+                // in autocode heissen sie fields
                 if (cluster.command != null)
                 {
                     foreach (var command in cluster.command)
                     {
-                        Console.WriteLine(CommandToClass(command, @namespace, cluster.name.Equals(GENERAL_COMMAND), name, cluster.code));
+                        Console.WriteLine(CommandToClass(command, @namespace, cluster.name.Equals(GENERAL_COMMAND), name, cluster.code, cluster.attribute));
                         return;
                     }
                 }
@@ -89,7 +91,7 @@ namespace RoslynCodeGeneratorTest
             Console.WriteLine("Finished generating clusters");
         }
 
-        static string CommandToClass(clusterCommand Command, string @Namespace, bool IsGeneral, string ClusterName, string ClusterId)
+        static string CommandToClass(clusterCommand Command, string @Namespace, bool IsGeneral, string ClusterName, string ClusterId, clusterAttribute[] attributes)
         {
             var @namespace = SyntaxFactory
                 .NamespaceDeclaration(SyntaxFactory.ParseName(@Namespace))
@@ -112,6 +114,20 @@ namespace RoslynCodeGeneratorTest
 
             // properties
             //Command.field
+            foreach (var attribute in attributes)
+            {
+                @class = @class
+                    .AddMembers(
+                    SyntaxFactory
+                    .PropertyDeclaration(
+                        attribute.type.ParseType(),
+                        SyntaxFactory.Identifier(attribute.name.GetValidName()))
+                    .WithModifiers(CreatePublicModifier())
+                    .WithAccessorList(CreateGetSetSyntax()))
+                    .AddXmlComment(attribute.description);
+
+                break;
+            }
 
             var constructorBody = new List<StatementSyntax>();
             constructorBody.Add(SyntaxFactory.ParseStatement($"GenericCommand = {IsGeneral.ToKeyword()};\r\n"));
@@ -123,7 +139,7 @@ namespace RoslynCodeGeneratorTest
             // Add constructor
             @class = @class.AddMembers(
                 SyntaxFactory.ConstructorDeclaration(@class.Identifier.ValueText)
-                .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)))
+                .WithModifiers(CreatePublicModifier())
                 .AddXmlComment("Default constructor")
                 .WithBody(SyntaxFactory.Block(constructorBody)));
 
@@ -163,8 +179,9 @@ namespace RoslynCodeGeneratorTest
                     SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword)),
                     "ToString")
                 .WithModifiers(
-                    SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword),
-                    SyntaxFactory.Token(SyntaxKind.OverrideKeyword)))
+                    SyntaxFactory.TokenList(
+                        SyntaxFactory.Token(SyntaxKind.PublicKeyword),
+                        SyntaxFactory.Token(SyntaxKind.OverrideKeyword)))
                 .WithBody(SyntaxFactory.Block(toStringBody))
                 );
 
@@ -176,6 +193,28 @@ namespace RoslynCodeGeneratorTest
                 .AddMembers(@class)
                 .Format()
                 .ToFullString();
+        }
+
+        static AccessorListSyntax CreateGetSetSyntax()
+        {
+            return SyntaxFactory.AccessorList(
+                SyntaxFactory.List(
+                    new AccessorDeclarationSyntax[]
+                    {
+                        SyntaxFactory.AccessorDeclaration(
+                            SyntaxKind.GetAccessorDeclaration)
+                        .WithSemicolonToken(
+                            SyntaxFactory.Token(SyntaxKind.SemicolonToken)),
+                        SyntaxFactory.AccessorDeclaration(
+                            SyntaxKind.SetAccessorDeclaration)
+                        .WithSemicolonToken(
+                            SyntaxFactory.Token(SyntaxKind.SemicolonToken))
+                    }));
+        }
+
+        static SyntaxTokenList CreatePublicModifier()
+        {
+            return SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword));
         }
 
         static ArgumentListSyntax Argument(ExpressionSyntax Argument)

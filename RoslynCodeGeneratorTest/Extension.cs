@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis.Text;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -54,7 +55,6 @@ namespace RoslynCodeGeneratorTest
             {
                 case "BOOLEAN":
                     return SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.BoolKeyword));
-                case "ENUMERATION_8_BIT":
                 case "UNSIGNED_8_BIT_INTEGER":
                     return SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.ByteKeyword));
                 case "UNSIGNED_16_BIT_INTEGER":
@@ -62,6 +62,7 @@ namespace RoslynCodeGeneratorTest
                 case "CHARACTER_STRING":
                     return SyntaxFactory.PredefinedType(SyntaxFactory.Token(SyntaxKind.StringKeyword));
                 default:
+                    Debugger.Break();
                     return null;
             }
         }
